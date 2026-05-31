@@ -195,7 +195,7 @@ fn default_field_name(dt: &DataType) -> &str {
         DataType::Duration(_) => "duration",
         DataType::Interval(unit) => match unit {
             IntervalUnit::YearMonth => "intervalyear",
-            IntervalUnit::DayTime => "intervalmonth",
+            IntervalUnit::DayTime => "intervalday",
             IntervalUnit::MonthDayNano => "intervalmonthdaynano",
         },
         DataType::Binary => "varbinary",
@@ -299,6 +299,24 @@ fn test_sample() {
     let avro_schema = AvroSchema::parse_str(schema).unwrap();
     let arrow_schema = to_arrow_schema(&avro_schema).unwrap();
     println!("{:?}", arrow_schema);
+}
+
+#[test]
+fn test_default_field_names_describe_interval_unit() {
+    // Regression: IntervalUnit::DayTime mapped to the misleading
+    // "intervalmonth". Verify each unit's name actually describes the unit.
+    assert!(
+        default_field_name(&DataType::Interval(IntervalUnit::YearMonth)).contains("year"),
+        "YearMonth name should mention year"
+    );
+    assert!(
+        default_field_name(&DataType::Interval(IntervalUnit::DayTime)).contains("day"),
+        "DayTime name should mention day"
+    );
+    assert!(
+        default_field_name(&DataType::Interval(IntervalUnit::MonthDayNano)).contains("month"),
+        "MonthDayNano name should mention month"
+    );
 }
 
 #[test]

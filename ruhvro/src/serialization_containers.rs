@@ -614,7 +614,10 @@ impl ContainerIter for EnumArrayContainer<'_> {
                     .unwrap_or_else(|| panic!("Did not find string in mapping"));
                 Some(Value::Enum(*idx as u32, s))
             }
-            _ => panic!("Expected string value"),
+            // Inner StringArray returns Value::Null for null rows; a wrapping
+            // nullable union handles the null tag, so we just pass it through.
+            Value::Null => Some(Value::Null),
+            other => panic!("Expected string value, got {:?}", other),
         }
     }
 }
@@ -899,5 +902,37 @@ mod tests {
         );
         let result = NullInfo::try_new(&union_schema);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_enum_container_handles_null() {
+        // Regression: EnumArrayContainer used to panic on null entries because
+        // it matched `Value::String(_)` and fell into `_ => panic!`. Nullable
+        // enum columns going through the slow path would crash.
+        let arr: ArrayRef =
+            Arc::new(StringArray::from(vec![Some("a"), None, Some("c")]));
+        let schema = Schema::Enum(EnumSchema {
+            name: Name {
+                name: "enum".to_owned(),
+                namespace: None,
+            },
+            aliases: None,
+            doc: None,
+            symbols: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            default: None,
+            attributes: Default::default(),
+        });
+        let mut enum_container = EnumArrayContainer::try_new(&arr, &schema).unwrap();
+        assert_eq!(
+            enum_container.next_item().unwrap(),
+            Value::Enum(0, "a".to_string())
+        );
+        // Was a panic; should produce Value::Null so a wrapping nullable union
+        // can emit the null branch correctly.
+        assert_eq!(enum_container.next_item().unwrap(), Value::Null);
+        assert_eq!(
+            enum_container.next_item().unwrap(),
+            Value::Enum(2, "c".to_string())
+        );
     }
 }
